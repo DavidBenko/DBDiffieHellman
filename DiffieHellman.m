@@ -27,10 +27,10 @@ typedef struct dh_fmem dh_fmem_t;
 @implementation DiffieHellman
 
 CCPBKDFAlgorithm const KeyDerivationAlgorithm = kCCPBKDF2;
-CCPseudoRandomAlgorithm const HmacAlgorithm = kCCPRFHmacAlgSHA256;
+CCPseudoRandomAlgorithm const HmacAlgorithm = kCCPRFHmacAlgSHA1;
 size_t const KeyDerivationRounds = 20000;
 size_t const DHSecretLength = 32;
-size_t const KeyLength = CC_SHA256_DIGEST_LENGTH;
+size_t const KeyLength = CC_SHA1_DIGEST_LENGTH;
 size_t const SaltLength = CC_SHA256_DIGEST_LENGTH;
 
 #pragma mark - fmemopen() implementation
@@ -154,33 +154,24 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
 
 #pragma mark - Elliptic Curve Key Generation
 
-- (EVP_PKEY *)generateECKeys{
-    EVP_PKEY_CTX *pctx, *kctx;
-    EVP_PKEY *pkey = NULL, *params = NULL;
-    /* NB: assumes pkey, peerkey have been already set up */
+- (EVP_PKEY *)generateECKeys {
+    // new EVP_PKEY will hold the result once we create the EC_KEY and convert it to an EVP_PKEY
+    EVP_PKEY *pkey = EVP_PKEY_new();
     
-    /* Create the context for parameter generation */
-    if(NULL == (pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL))) [self throwError:nil];
+    // We're going to create a new EC_KEY with specific parameters
+    EC_KEY *key;
     
-    /* Initialise the parameter generation */
-    if(1 != EVP_PKEY_paramgen_init(pctx)) [self throwError:nil];
+    // Create an Elliptic Curve Key object and set it up to use the ANSI X9.62 Prime 256v1 curve
+    if(NULL == (key = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1))) [self throwError:nil];
     
-    /* We're going to use the ANSI X9.62 Prime 256v1 curve */
-    if(1 != EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1)) [self throwError:nil];
+    // Generate the private and public key
+    if(1 != EC_KEY_generate_key(key)) [self throwError:nil];
     
-    /* Create the parameter object params */
-    if (!EVP_PKEY_paramgen(pctx, &params)) [self throwError:nil];
+    // Set the option to output the public key using OpenSSL EC Named Curve only, rather than outputting a key with explicit parameters
+    EC_KEY_set_asn1_flag(key, OPENSSL_EC_NAMED_CURVE);
     
-    /* Create the context for the key generation */
-    if(NULL == (kctx = EVP_PKEY_CTX_new(params, NULL))) [self throwError:nil];
-    
-    /* Generate the key */
-    if(1 != EVP_PKEY_keygen_init(kctx)) [self throwError:nil];
-    if (1 != EVP_PKEY_keygen(kctx, &pkey)) [self throwError:nil];
-    
-    EVP_PKEY_CTX_free(kctx);
-    EVP_PKEY_CTX_free(pctx);
-    EVP_PKEY_free(params);
+    // Assign the EC_KEY to the EVP_PKEY - this method will also free the EC_KEY memory when EVP_PKEY memory is freed later on
+    if(1 != EVP_PKEY_assign_EC_KEY(pkey, key)) [self throwError:nil];
     
     return pkey;
 }
@@ -212,7 +203,7 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
     for(int i = 0; i < secretLen; i++){
         [ms appendString:[NSString stringWithFormat:@"%02x",secret[i]]];
     }
-        
+    
     EVP_PKEY_CTX_free(ctx);
     EVP_PKEY_free(theirKey);
     EVP_PKEY_free(ourKey);
@@ -231,10 +222,10 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
 
 #pragma mark - Key Exchange
 
-- (void)keyExchange:(void (^)(NSString *key, NSString *salt))callback{
+- (void)keyExchange:(void (^)(NSString *ourPubKey, NSString *key, NSString *salt))callback{
     EVP_PKEY *ourKey = [self generateECKeys];
-    
-    NSURLRequest *request = [self.delegate keyExchangeRequest:[self pubKeyToString:ourKey]];
+    NSString *ourPubKeyAsString = [self pubKeyToString:ourKey];
+    NSURLRequest *request = [self.delegate keyExchangeRequest:ourPubKeyAsString];
     
     NSOperationQueue *queue = [[NSOperationQueue alloc] init];
     [NSURLConnection sendAsynchronousRequest:request queue:queue completionHandler:^(NSURLResponse *response, NSData *data, NSError *error){
@@ -251,7 +242,7 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
             
             if (callback) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    callback(key,saltString);
+                    callback(ourPubKeyAsString,key,saltString);
                 });
             }
             
