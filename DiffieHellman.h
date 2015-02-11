@@ -30,5 +30,5 @@ FOUNDATION_EXPORT size_t const SaltLength;
 
 @property (nonatomic, weak) id<DiffieHellmanDelegate> delegate;
 
-- (void)keyExchange:(void (^)(NSString *key, NSString *salt))callback;
+- (void)keyExchange:(void (^)(NSString *ourPubKey, NSString *key, NSString *salt))callback;
 @end
