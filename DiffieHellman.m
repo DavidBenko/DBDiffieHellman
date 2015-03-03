@@ -128,6 +128,7 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
     
     pFile = dh_fmemopen(buf, sizeof(buf), "w");
     PEM_write_PUBKEY(pFile,pubkey);
+    fputc('\0', pFile);
     fclose(pFile);
     
     if (buf)
@@ -144,6 +145,7 @@ FILE *dh_fmemopen(void *buf, size_t size, const char *mode) {
     
     pFile = dh_fmemopen(buf, sizeof(buf), "r+");
     fputs([str UTF8String], pFile);
+    fputc('\0', pFile);
     rewind(pFile);
     key = PEM_read_PUBKEY(pFile, NULL, NULL, NULL);
     fclose(pFile);
